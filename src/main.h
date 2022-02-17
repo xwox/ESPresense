@@ -173,9 +173,9 @@ String resetReason(RESET_REASON reason)
     }
 }
 
-unsigned long getUptimeSeconds(void)
+unsigned long getUptimeSeconds()
 {
-    return esp_timer_get_time() / 1e6;
+    return esp_timer_get_time() / int(1e6);
 }
 
 void setClock()
@@ -209,14 +209,14 @@ void configureOTA()
                {
                    updateInProgress = false;
                    fingerprints.setDisable(updateInProgress);
-                   Display.updateEnd();
+                   GUI::updateEnd();
                    Serial.println("\n\rEnd");
                })
         .onProgress([](unsigned int progress, unsigned int total)
                     {
                         byte percent = (progress / (total / 100));
                         Serial.printf("Progress: %u\r\n", percent);
-                        Display.updateProgress(progress);
+                        GUI::updateProgress(progress);
                     })
         .onError([](ota_error_t error)
                  {
@@ -242,8 +242,8 @@ void firmwareUpdate()
 {
 #ifdef FIRMWARE
     if (!autoUpdate) return;
-    static long lastFirmwareCheck = 0;
-    long uptime = getUptimeSeconds();
+    static unsigned long lastFirmwareCheck = 0;
+    unsigned long uptime = getUptimeSeconds();
     if (uptime - lastFirmwareCheck < CHECK_FOR_UPDATES_INTERVAL)
         return;
 
@@ -273,10 +273,10 @@ void firmwareUpdate()
 
     updateInProgress = true;
     fingerprints.setDisable(updateInProgress);
-    Display.updateStart();
+    GUI::updateStart();
     httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
     t_httpUpdate_return ret = httpUpdate.update(client, firmwareUrl);
-    Display.updateEnd();
+    GUI::updateEnd();
 
     switch (ret)
     {
@@ -345,33 +345,33 @@ bool pub(const char *topic, uint8_t qos, bool retain, const char *payload, size_
 
 bool sendOnline()
 {
-    return mqttClient.publish(statusTopic.c_str(), 0, 1, "online") && mqttClient.publish((roomsTopic + "/max_distance").c_str(), 0, 1, String(maxDistance).c_str()) && mqttClient.publish((roomsTopic + "/query").c_str(), 0, 1, query.c_str()) && mqttClient.publish((roomsTopic + "/include").c_str(), 0, 1, include.c_str()) && mqttClient.publish((roomsTopic + "/exclude").c_str(), 0, 1, exclude.c_str()) && mqttClient.publish((roomsTopic + "/status_led").c_str(), 0, 1, String(statusLed ? "ON" : "OFF").c_str()) && mqttClient.publish((roomsTopic + "/active_scan").c_str(), 0, 1, String(activeScan ? "ON" : "OFF").c_str());
+    return mqttClient.publish(statusTopic.c_str(), 0, true, "online") && mqttClient.publish((roomsTopic + "/max_distance").c_str(), 0, true, String(maxDistance).c_str()) && mqttClient.publish((roomsTopic + "/query").c_str(), 0, true, query.c_str()) && mqttClient.publish((roomsTopic + "/include").c_str(), 0, true, include.c_str()) && mqttClient.publish((roomsTopic + "/exclude").c_str(), 0, true, exclude.c_str()) && mqttClient.publish((roomsTopic + "/status_led").c_str(), 0, true, String(statusLed ? "ON" : "OFF").c_str()) && mqttClient.publish((roomsTopic + "/active_scan").c_str(), 0, true, String(activeScan ? "ON" : "OFF").c_str());
 }
 
-void commonDiscovery(JsonDocument *doc)
+void commonDiscovery()
 {
-    doc->clear();
-    auto identifiers = (*doc)["dev"].createNestedArray("ids");
+    doc.clear();
+    auto identifiers = doc["dev"].createNestedArray("ids");
     identifiers.add(Sprintf("espresense_%06" PRIx64, ESP.getEfuseMac() >> 24));
-    auto connections = (*doc)["dev"].createNestedArray("cns");
+    auto connections = doc["dev"].createNestedArray("cns");
     auto mac = connections.createNestedArray();
     mac.add("mac");
     mac.add(WiFi.macAddress());
-    (*doc)["dev"]["name"] = "ESPresense " + room;
-    (*doc)["dev"]["sa"] = room;
+    doc["dev"]["name"] = "ESPresense " + room;
+    doc["dev"]["sa"] = room;
 #ifdef VERSION
     (*doc)["dev"]["sw"] = VERSION;
 #endif
 #ifdef FIRMWARE
-    (*doc)["dev"]["mf"] = "ESPresense (" FIRMWARE ")";
+    doc["dev"]["mf"] = "ESPresense (" FIRMWARE ")";
 #endif
-    (*doc)["dev"]["cu"] = "http://" + localIp;
-    (*doc)["dev"]["mdl"] = ESP.getChipModel();
+    doc["dev"]["cu"] = "http://" + localIp;
+    doc["dev"]["mdl"] = ESP.getChipModel();
 }
 
 bool sendDiscoveryConnectivity()
 {
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room;
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_connectivity", ESP.getEfuseMac() >> 24);
@@ -381,7 +381,6 @@ bool sendDiscoveryConnectivity()
     doc["pl_on"] = "online";
     doc["pl_off"] = "offline";
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/binary_sensor/espresense_" + ESPMAC + "/connectivity/config";
 
@@ -390,7 +389,7 @@ bool sendDiscoveryConnectivity()
 
 bool sendDiscoveryUptime()
 {
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Uptime";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_uptime", ESP.getEfuseMac() >> 24);
@@ -400,7 +399,6 @@ bool sendDiscoveryUptime()
     doc["value_template"] = "{{ value_json.uptime }}";
     doc["unit_of_measurement"] = "s";
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/uptime/config";
 
@@ -409,7 +407,7 @@ bool sendDiscoveryUptime()
 
 bool sendDiscoveryFreeMem()
 {
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Free Memory";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_free_mem", ESP.getEfuseMac() >> 24);
@@ -419,7 +417,6 @@ bool sendDiscoveryFreeMem()
     doc["value_template"] = "{{ value_json.maxAllocHeap }}";
     doc["unit_of_measurement"] = "bytes";
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/free_mem/config";
 
@@ -430,7 +427,7 @@ bool sendDiscoveryMotion()
 {
     if (!pirPin && !radarPin) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Motion";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_motion", ESP.getEfuseMac() >> 24);
@@ -438,7 +435,6 @@ bool sendDiscoveryMotion()
     doc["stat_t"] = "~/motion";
     doc["dev_cla"] = "motion";
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/binary_sensor/espresense_" + ESPMAC + "/motion/config";
 
@@ -450,7 +446,7 @@ bool sendDiscoveryTemperature()
 {
     if (!dht11Pin && !dht22Pin) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Temperature";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_temperature", ESP.getEfuseMac() >> 24);
@@ -469,7 +465,7 @@ bool sendDiscoveryHumidity()
 {
     if (!dht11Pin && !dht22Pin) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Humidity";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_humidity", ESP.getEfuseMac() >> 24);
@@ -487,7 +483,7 @@ bool sendDiscoveryLux()
 {
     if (BH1750_I2c.isEmpty()) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " Lux";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_lux", ESP.getEfuseMac() >> 24);
@@ -507,7 +503,7 @@ bool sendDiscoveryBME280Temperature()
 {
     if (BME280_I2c.isEmpty()) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " BME280 Temperature";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_temperature", ESP.getEfuseMac() >> 24);
@@ -534,7 +530,7 @@ bool sendDiscoveryBME280Humidity()
 {
     if (BME280_I2c.isEmpty()) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " BME280 Humidity";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_humidity", ESP.getEfuseMac() >> 24);
@@ -561,7 +557,7 @@ bool sendDiscoveryBME280Pressure()
 {
     if (BME280_I2c.isEmpty()) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " BME280 Pressure";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_pressure", ESP.getEfuseMac() >> 24);
@@ -588,7 +584,7 @@ bool sendDiscoveryTSL2561Lux()
 {
     if (TSL2561_I2c.isEmpty()) return true;
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = "ESPresense " + room + " TSL2561 Lux";
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_tsl2561_lux", ESP.getEfuseMac() >> 24);
@@ -613,11 +609,11 @@ bool sendDiscoveryTSL2561Lux()
 }
 #endif
 
-bool sendButtonDiscovery(String name, String entityCategory)
+bool sendButtonDiscovery(const String &name, const String &entityCategory)
 {
     auto slug = slugify(name);
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = Sprintf("ESPresense %s %s", room.c_str(), name.c_str());
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_%s", ESP.getEfuseMac() >> 24, slug.c_str());
@@ -626,17 +622,16 @@ bool sendButtonDiscovery(String name, String entityCategory)
     doc["cmd_t"] = "~/" + slug + "/set";
     doc["entity_category"] = entityCategory;
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/button/espresense_" + ESPMAC + "/" + slug + "/config";
     return pub(discoveryTopic.c_str(), 0, true, buffer);
 }
 
-bool sendSwitchDiscovery(String name, String entityCategory)
+bool sendSwitchDiscovery(const String &name, const String &entityCategory)
 {
     auto slug = slugify(name);
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = Sprintf("ESPresense %s %s", room.c_str(), name.c_str());
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_%s", ESP.getEfuseMac() >> 24, slug.c_str());
@@ -645,24 +640,23 @@ bool sendSwitchDiscovery(String name, String entityCategory)
     doc["cmd_t"] = "~/" + slug + "/set";
     doc["entity_category"] = entityCategory;
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/switch/espresense_" + ESPMAC + "/" + slug + "/config";
     return pub(discoveryTopic.c_str(), 0, true, buffer);
 }
 
-bool sendDeleteDiscovery(String domain, String name)
+bool sendDeleteDiscovery(const String &domain, const String &name)
 {
     auto slug = slugify(name);
     String discoveryTopic = "homeassistant/" + domain + "/espresense_" + ESPMAC + "/" + slug + "/config";
     return pub(discoveryTopic.c_str(), 0, false, "");
 }
 
-bool sendNumberDiscovery(String name, String entityCategory)
+bool sendNumberDiscovery(const String &name, const String &entityCategory)
 {
     auto slug = slugify(name);
 
-    commonDiscovery(&doc);
+    commonDiscovery();
     doc["~"] = roomsTopic;
     doc["name"] = Sprintf("ESPresense %s %s", room.c_str(), name.c_str());
     doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_%s", ESP.getEfuseMac() >> 24, slug.c_str());
@@ -672,7 +666,6 @@ bool sendNumberDiscovery(String name, String entityCategory)
     doc["step"] = "0.01";
     doc["entity_category"] = entityCategory;
 
-    char buffer[1200];
     serializeJson(doc, buffer);
     String discoveryTopic = "homeassistant/number/espresense_" + ESPMAC + "/" + slug + "/config";
     return pub(discoveryTopic.c_str(), 0, true, buffer);

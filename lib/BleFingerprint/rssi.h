@@ -4,7 +4,7 @@
 #define CLOSE_RSSI -40
 #define LEFT_RSSI -50
 
-#define DEFAULT_TX -6;
+#define DEFAULT_TX -6
 
 #define APPLE_TX 0
 #define TILE_TX -4

@@ -73,7 +73,7 @@ bool sendTelemetry(int totalSeen, int totalFpSeen, int totalFpQueried, int total
 
     for (int i = 0; i < 10; i++)
     {
-        if (!publishTele || mqttClient.publish(teleTopic.c_str(), 0, 0, teleMessageBuffer))
+        if (!publishTele || mqttClient.publish(teleTopic.c_str(), 0, false, teleMessageBuffer))
             return true;
         delay(50);
     }
@@ -86,20 +86,20 @@ bool sendTelemetry(int totalSeen, int totalFpSeen, int totalFpQueried, int total
 void connectToWifi()
 {
     Serial.printf("Connecting to WiFi (%s)...\n", WiFi.macAddress().c_str());
-    Display.blit();
+    GUI::blit();
 
     WiFiSettings.onConnect = []()
     {
-        Display.connected(false, false);
+        GUI::connected(false, false);
     };
 
     WiFiSettings.onFailure = []()
     {
-        Display.status("WiFi Portal...");
+        GUI::status("WiFi Portal...");
     };
     WiFiSettings.onWaitLoop = []()
     {
-        Display.connecting();
+        GUI::connecting();
         return 150;
     };
     WiFiSettings.onPortalWaitLoop = []()
@@ -108,7 +108,7 @@ void connectToWifi()
             ESP.restart();
     };
 
-    Display.connected(true, false);
+    GUI::connected(true, false);
 #ifdef VERSION
     WiFiSettings.info("ESPResense Version: " + String(VERSION));
 #endif
@@ -122,7 +122,7 @@ void connectToWifi()
 
     WiFiSettings.heading("Preferences");
     statusLed = WiFiSettings.checkbox("status_led", true, "Status LED");
-    Display.setStatusLed(statusLed);
+    GUI::setStatusLed(statusLed);
     autoUpdate = WiFiSettings.checkbox("auto_update", DEFAULT_AUTO_UPDATE, "Automatically Update");
     otaUpdate = WiFiSettings.checkbox("ota_update", DEFAULT_OTA_UPDATE, "Arduino OTA Update");
     discovery = WiFiSettings.checkbox("discovery", true, "Home Assistant Discovery");
@@ -243,12 +243,12 @@ void onMqttConnect(bool sessionPresent)
     xTimerStop(reconnectTimer, 0);
     mqttClient.subscribe("espresense/rooms/*/+/set", 1);
     mqttClient.subscribe(setTopic.c_str(), 1);
-    Display.connected(true, true);
+    GUI::connected(true, true);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
-    Display.connected(true, false);
+    GUI::connected(true, false);
     log_e("Disconnected from MQTT; reason %d\n", reason);
     xTimerStart(reconnectTimer, 0);
     online = false;
@@ -304,7 +304,7 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
     {
         statusLed = pay == "ON";
         spurt("/status_led", String(statusLed));
-        Display.setStatusLed(statusLed);
+        GUI::setStatusLed(statusLed);
         online = false;
     }
     else if (command == "restart")
@@ -340,12 +340,12 @@ void reconnect(TimerHandle_t xTimer)
 
 void connectToMqtt()
 {
-    reconnectTimer = xTimerCreate("reconnectionTimer", pdMS_TO_TICKS(3000), pdTRUE, (void *)0, reconnect);
+    reconnectTimer = xTimerCreate("reconnectionTimer", pdMS_TO_TICKS(3000), pdTRUE, (void *)nullptr, reconnect);
     mqttClient.onConnect(onMqttConnect);
     mqttClient.onDisconnect(onMqttDisconnect);
     mqttClient.onMessage(onMqttMessage);
     mqttClient.setServer(mqttHost.c_str(), mqttPort);
-    mqttClient.setWill(statusTopic.c_str(), 0, 1, offline.c_str());
+    mqttClient.setWill(statusTopic.c_str(), 0, true, offline.c_str());
     mqttClient.setCredentials(mqttUser.c_str(), mqttPass.c_str());
     mqttClient.connect();
 }
@@ -367,10 +367,10 @@ bool reportDevice(BleFingerprint *f)
         if (!mqttClient.connected())
             return false;
 
-        if (!p1 && (!publishRooms || mqttClient.publish((char *)roomsTopic.c_str(), 0, 0, JSONmessageBuffer)))
+        if (!p1 && (!publishRooms || mqttClient.publish((char *)roomsTopic.c_str(), 0, false, JSONmessageBuffer)))
             p1 = true;
 
-        if (!p2 && (!publishDevices || mqttClient.publish((char *)devicesTopic.c_str(), 0, 0, JSONmessageBuffer)))
+        if (!p2 && (!publishDevices || mqttClient.publish((char *)devicesTopic.c_str(), 0, false, JSONmessageBuffer)))
             p2 = true;
 
         if (p1 && p2)
@@ -395,7 +395,9 @@ void scanForDevices(void *parameter)
     pBLEScan->setWindow(BLE_SCAN_WINDOW);
     pBLEScan->setAdvertisedDeviceCallbacks(&fingerprints, true);
     if (activeScan) pBLEScan->setActiveScan(true);
-    pBLEScan->setMaxResults(0);
+    pBLEScan->setDuplicateFilter(false);
+    pBLEScan->setMaxResults(0xFF);
+    // pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_NO_WL_INITA);
     if (!pBLEScan->start(0, nullptr, false))
         log_e("Error starting continuous ble scan");
 
@@ -404,13 +406,13 @@ void scanForDevices(void *parameter)
     int totalFpQueried = 0;
     int totalFpReported = 0;
 
-    while (1)
+    while (true)
     {
         while (updateInProgress || !mqttClient.connected())
             delay(1000);
 
         yield();
-        auto seen = fingerprints.getCopy();
+        auto copy = fingerprints.getCopy();
 
         sendTelemetry(totalSeen, totalFpSeen, totalFpQueried, totalFpReported);
         yield();
@@ -418,9 +420,8 @@ void scanForDevices(void *parameter)
         if (millis() - lastQueryMillis > 3000)
         {
             auto started = millis();
-            for (auto it = seen.begin(); it != seen.end(); ++it)
+            for (auto f : copy)
             {
-                auto f = (*it);
                 if (f->query())
                     totalFpQueried++;
 
@@ -429,7 +430,7 @@ void scanForDevices(void *parameter)
 
             if (!pBLEScan->isScanning())
             {
-                if (!pBLEScan->start(0, nullptr, false))
+                if (!pBLEScan->start(0, nullptr, true))
                     log_e("Error re-starting continuous ble scan");
 
                 lastQueryMillis = millis(); // If we stopped scanning, don't query for 3 seconds in order for us to catch any missed broadcasts
@@ -437,9 +438,8 @@ void scanForDevices(void *parameter)
         }
 
         auto reported = 0;
-        for (auto it = seen.begin(); it != seen.end(); ++it)
+        for (auto f : copy)
         {
-            auto f = (*it);
             auto seen = f->getSeenCount();
             if (seen)
             {
@@ -494,7 +494,7 @@ void triggerGetTemp()
 
 void setup()
 {
-    Display.setup();
+    GUI::setup();
 
 #ifdef FAST_MONITOR
     Serial.begin(1500000);
@@ -620,7 +620,7 @@ void setup()
         }
     }
 #endif
-    xTaskCreatePinnedToCore(scanForDevices, "scanForDevices", 4000, nullptr, 1, &scannerTask, 1);
+    xTaskCreatePinnedToCore(scanForDevices, "scanForDevices", 6000, nullptr, 1, &scannerTask, 1);
     configureOTA();
 }
 
@@ -633,12 +633,12 @@ void pirLoop()
     {
         if (pirValue == HIGH)
         {
-            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, 1, "ON");
+            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, true, "ON");
             Serial.println("PIR MOTION DETECTED!!!");
         }
         else
         {
-            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, 1, "OFF");
+            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, true, "OFF");
             Serial.println("NO PIR MOTION DETECTED!!!");
         }
 
@@ -655,12 +655,12 @@ void radarLoop()
     {
         if (radarValue == HIGH)
         {
-            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, 1, "ON");
+            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, true, "ON");
             Serial.println("Radar MOTION DETECTED!!!");
         }
         else
         {
-            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, 1, "OFF");
+            mqttClient.publish((roomsTopic + "/motion").c_str(), 0, true, "OFF");
             Serial.println("NO Radar MOTION DETECTED!!!");
         }
 
@@ -920,7 +920,7 @@ void loop()
     if (otaUpdate)
         ArduinoOTA.handle();
     firmwareUpdate();
-    Display.blit();
+    GUI::blit();
     pirLoop();
     radarLoop();
 #ifdef SENSORS

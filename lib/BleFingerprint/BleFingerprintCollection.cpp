@@ -8,13 +8,12 @@ void BleFingerprintCollection::cleanupOldFingerprints()
     auto it = fingerprints.begin();
     while (it != fingerprints.end())
     {
-        auto item = (*it);
-        long age = item->getAge();
+        long age = (*it)->getAge();
         if (age > _forgetMs)
         {
-            Display.removed(item, age);
+            GUI::removed((*it));
+            delete *it;
             it = fingerprints.erase(it);
-            delete item;
         }
         else
         {
@@ -55,7 +54,7 @@ BleFingerprint *BleFingerprintCollection::getFingerprint(BLEAdvertisedDevice *ad
     return f;
 }
 
-std::list<BleFingerprint *> BleFingerprintCollection::getCopy()
+const std::list<BleFingerprint *> BleFingerprintCollection::getCopy()
 {
     if (xSemaphoreTake(fingerprintSemaphore, 1000) != pdTRUE)
         log_e("Couldn't take semaphore!");

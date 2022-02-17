@@ -29,8 +29,8 @@
 #define ID_TYPE_TILE short(19)
 #define ID_TYPE_MEATER short(20)
 #define ID_TYPE_APPLE_NEARBY short(35)
-#define ID_TYPE_APPLE_MODEL short(40)
-#define ID_TYPE_APPLE_NAME short(50)
+#define ID_TYPE_QUERY_MODEL short(40)
+#define ID_TYPE_QUERY_NAME short(50)
 #define ID_TYPE_EBEACON short(97)
 #define ID_TYPE_ABEACON short(98)
 #define ID_TYPE_IBEACON short(99)
@@ -42,13 +42,14 @@ class BleFingerprint
 {
 
 public:
-    BleFingerprint(BleFingerprintCollection *parent, BLEAdvertisedDevice *advertisedDevice, float fcmin, float beta, float dcutoff);
+    BleFingerprint(const BleFingerprintCollection *parent, NimBLEAdvertisedDevice *advertisedDevice, float fcmin,
+                   float beta, float dcutoff);
 
     bool seen(BLEAdvertisedDevice *advertisedDevice);
     bool report(JsonDocument *doc);
     bool query();
 
-    String getId()
+    const String getId()
     {
         if (!id.isEmpty() && idType > 10) return id;
         if (macPublic) return getMac();
@@ -56,9 +57,9 @@ public:
         return getMac();
     }
 
-    void setId(String newId, short int newIdType);
+    void setId(const String& newId, short int newIdType);
 
-    String getMac();
+    String getMac() const;
     int get1mRssi();
     String getDiscriminator() { return disc; }
 
@@ -70,7 +71,7 @@ public:
 
     NimBLEAddress getAddress() { return address; }
     long getAge() { return millis() - lastSeenMillis; };
-    bool getIgnore() { return ignore; };
+    bool getIgnore() const { return ignore; };
     bool getAllowQuery() { return allowQuery; };
     bool getRmAsst() { return rmAsst; };
     int getSeenCount()
@@ -81,14 +82,15 @@ public:
     }
 
 private:
-    void fingerprint(BLEAdvertisedDevice *advertisedDevice);
-    bool shouldHide(String newId);
+    void fingerprint(NimBLEAdvertisedDevice *advertisedDevice);
+    bool shouldHide(const String& s);
 
-    BleFingerprintCollection *_parent;
+    const BleFingerprintCollection *_parent{};
     bool hasValue = false, close = false, reported = false, macPublic = false, ignore = false, allowQuery = false, didQuery = false, rmAsst = false, hidden = false, connectable = false;
     NimBLEAddress address;
     String id, name, disc;
-    short int idType = 0, rssi = -100, calRssi = NO_RSSI, mdRssi = NO_RSSI, asRssi = NO_RSSI, newest = NO_RSSI, recent = NO_RSSI, oldest = NO_RSSI;
+    short int idType = 0;
+    int rssi = -100, calRssi = NO_RSSI, mdRssi = NO_RSSI, asRssi = NO_RSSI, newest = NO_RSSI, recent = NO_RSSI, oldest = NO_RSSI;
     int qryAttempts = 0, seenCount = 1, qryDelayMillis = 0;
     float raw = 0, lastReported = 0, temp = 0, humidity = 0;
     unsigned long firstSeenMillis, lastSeenMillis = 0, lastReportedMillis = 0, lastQryMillis = 0;

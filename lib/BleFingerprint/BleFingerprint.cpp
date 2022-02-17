@@ -19,7 +19,7 @@
         Sprintf("%02x%02x%02x%02x%02x%02x", nativeAddress[5], nativeAddress[4], nativeAddress[3], nativeAddress[2], nativeAddress[1], nativeAddress[0]); \
     })
 
-bool prefixExists(String prefixes, String id)
+bool prefixExists(const String& prefixes, const String& id)
 {
     unsigned int start = 0;
     unsigned int space = 0;
@@ -37,16 +37,16 @@ bool prefixExists(String prefixes, String id)
     return (sub == "*" || id.indexOf(sub) != -1);
 }
 
-bool BleFingerprint::shouldHide(String id)
+bool BleFingerprint::shouldHide(const String& s)
 {
     auto include = _parent->getInclude();
-    if (include.length() > 0 && !prefixExists(include, id)) return true;
+    if (include.length() > 0 && !prefixExists(include, s)) return true;
 
     auto exclude = _parent->getExclude();
-    return (exclude.length() > 0 && prefixExists(exclude, id));
+    return (exclude.length() > 0 && prefixExists(exclude, s));
 }
 
-void BleFingerprint::setId(String newId, short int newIdType)
+void BleFingerprint::setId(const String& newId, short int newIdType)
 {
     if (newIdType < idType) return;
 
@@ -71,7 +71,7 @@ void BleFingerprint::setId(String newId, short int newIdType)
     idType = newIdType;
 }
 
-String BleFingerprint::getMac() { return SMacf(address); }
+String BleFingerprint::getMac() const { return SMacf(address); }
 
 int BleFingerprint::get1mRssi()
 {
@@ -81,17 +81,14 @@ int BleFingerprint::get1mRssi()
     return _parent->getRefRssi() + DEFAULT_TX;
 }
 
-BleFingerprint::BleFingerprint(BleFingerprintCollection *parent, BLEAdvertisedDevice *advertisedDevice, float fcmin, float beta, float dcutoff) : oneEuro{OneEuroFilter<float, unsigned long>(1, fcmin, beta, dcutoff)}
-{
-    _parent = parent;
-
+BleFingerprint::BleFingerprint(const BleFingerprintCollection *parent, BLEAdvertisedDevice *advertisedDevice, float fcmin, float beta, float dcutoff) : _parent(parent),                                                                                            oneEuro{OneEuroFilter<float, unsigned long>(1, fcmin, beta, dcutoff)} {
     firstSeenMillis = millis();
     address = advertisedDevice->getAddress();
     macPublic = advertisedDevice->getAddressType() == BLE_ADDR_PUBLIC;
     newest = recent = oldest = rssi = advertisedDevice->getRSSI();
 }
 
-void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
+void BleFingerprint::fingerprint(NimBLEAdvertisedDevice *advertisedDevice)
 {
     if (advertisedDevice->haveName())
         name = String(advertisedDevice->getName().c_str());
@@ -174,7 +171,6 @@ void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
 
             if (uuid == exposureUUID)
             { // found covid exposure tracker
-                std::string strServiceData = advertisedDevice->getServiceData(exposureUUID);
                 calRssi = _parent->getRefRssi() + EXPOSURE_TX;
                 setId("exp:" + String(strServiceData.length()), ID_TYPE_EXPOSURE);
                 disc = hexStr(strServiceData).c_str();
@@ -185,8 +181,8 @@ void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
                 if (strServiceData.length() == 15)
                 { // custom format
                     auto serviceData = strServiceData.c_str();
-                    temp = *(int16_t *)(serviceData + 6) / 100.0f;
-                    humidity = *(uint16_t *)(serviceData + 8) / 100.0f;
+                    temp = float(*(int16_t *)(serviceData + 6)) / 100.0f;
+                    humidity = float(*(uint16_t *)(serviceData + 8)) / 100.0f;
                     mv = *(uint16_t *)(serviceData + 10);
 #ifdef VERBOSE
                     Serial.printf("Temp: %.2f°, Humidity: %.2f%%, Vbatt: %d, Battery: %d%%, flg: 0x%02x, cout: %d\n", temp, humidity, mv, serviceData[12], serviceData[14], serviceData[13]);
@@ -197,7 +193,7 @@ void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
                 { // format atc1441
                     auto serviceData = strServiceData.c_str();
                     int16_t x = (serviceData[6] << 8) | serviceData[7];
-                    temp = x / 10.0f;
+                    temp = float(x) / 10.0f;
                     mv = x = (serviceData[10] << 8) | serviceData[11];
 #ifdef VERBOSE
                     Serial.printf("Temp: %.1f°, Humidity: %d%%, Vbatt: %d, Battery: %d%%, cout: %d\n", temp, serviceData[8], mv, serviceData[9], serviceData[12]);
@@ -263,7 +259,7 @@ void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
                     BLEBeacon oBeacon = BLEBeacon();
                     oBeacon.setData(strManufacturerData);
                     setId(Sprintf("iBeacon:%s-%d-%d", std::string(oBeacon.getProximityUUID()).c_str(), ENDIAN_CHANGE_U16(oBeacon.getMajor()), ENDIAN_CHANGE_U16(oBeacon.getMinor())), ID_TYPE_IBEACON);
-                    calRssi = oBeacon.getSignalPower();
+                    calRssi = (unsigned char)oBeacon.getSignalPower();
                 }
                 else if (strManufacturerData.length() >= 4 && strManufacturerData[2] == 0x10)
                 {
@@ -319,7 +315,7 @@ void BleFingerprint::fingerprint(BLEAdvertisedDevice *advertisedDevice)
                 BLEBeacon oBeacon = BLEBeacon();
                 oBeacon.setData(strManufacturerData.substr(0, 25));
                 setId(Sprintf("altBeacon:%s-%d-%d", std::string(oBeacon.getProximityUUID()).c_str(), ENDIAN_CHANGE_U16(oBeacon.getMajor()), ENDIAN_CHANGE_U16(oBeacon.getMinor())), ID_TYPE_ABEACON);
-                calRssi = oBeacon.getSignalPower();
+                calRssi = (unsigned char)oBeacon.getSignalPower();
             }
             else if (manuf != "0000")
             {
@@ -358,8 +354,8 @@ bool BleFingerprint::seen(BLEAdvertisedDevice *advertisedDevice)
 
     if (ignore) return false;
 
-    float ratio = (get1mRssi() - rssi) / 35.0f;
-    raw = pow(10, ratio);
+    double ratio = double(get1mRssi() - rssi) / 35.0f;
+    raw = float(pow(10, ratio));
 
     bool hadValue = hasValue;
 
@@ -370,12 +366,12 @@ bool BleFingerprint::seen(BLEAdvertisedDevice *advertisedDevice)
 
         if (!close && newest > CLOSE_RSSI)
         {
-            Display.close(this);
+            GUI::close(this);
             close = true;
         }
         else if (close && newest < LEFT_RSSI)
         {
-            Display.left(this);
+            GUI::left(this);
             close = false;
         }
 
@@ -462,17 +458,17 @@ bool BleFingerprint::query()
             std::string sMdl = pClient->getValue(deviceInformationService, modelChar);
             std::string sName = pClient->getValue(genericAccessService, nameChar);
             iphone = sMdl.find("iPhone") == 0;
-            if (!sName.empty() && !sMdl.empty() && sMdl.find(sName) == std::string::npos && sName.compare("Apple Watch") != 0)
+            if (!sName.empty() && !sMdl.empty() && sMdl.find(sName) == std::string::npos && sName != "Apple Watch")
             {
                 Serial.printf("%d Name  | MAC: %s, ID: %-60s %s\n", xPortGetCoreID(), getMac().c_str(), getId().c_str(), sName.c_str());
-                setId(String("name:") + kebabify(sName).c_str(), ID_TYPE_APPLE_NAME);
+                setId(String("name:") + kebabify(sName).c_str(), ID_TYPE_QUERY_NAME);
                 success = true;
             }
             else if (!sMdl.empty())
             {
                 if (name.isEmpty()) name = sMdl.c_str();
                 Serial.printf("%d Model | MAC: %s, ID: %-60s %s\n", xPortGetCoreID(), getMac().c_str(), getId().c_str(), sMdl.c_str());
-                setId(String("apple:") + kebabify(sMdl).c_str(), ID_TYPE_APPLE_MODEL);
+                setId(String("apple:") + kebabify(sMdl).c_str(), ID_TYPE_QUERY_MODEL);
                 success = true;
             }
             else if (!sName.empty())
